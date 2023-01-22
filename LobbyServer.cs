@@ -20,8 +20,7 @@ namespace LobbySystemServer
 
         internal async void Start()
         {
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine(ConsoleUtil.DrawInConsoleBox("Server is Online"));
+            ConsoleUtil.ShowBoxLog("\nServer is Online", ConsoleColor.Cyan);
             //1. Start to listen on a port
             ServerContainer = ConnectionFactory.CreateSecureServerConnectionContainer(1234, start: true);
             await ServerContainer.Start();
@@ -41,18 +40,30 @@ namespace LobbySystemServer
             Console.ReadLine();
         }
 
+        /// <summary>
+        /// Called when client's connection is establishes. Registers packet handlers.
+        /// </summary>
+        /// <param name="connection">Connection Data</param>
+        /// <param name="type">Connection Type</param>
         private void connectionEstablished(Connection connection, ConnectionType type)
         {
-            Console.ForegroundColor = ConsoleColor.Green;
             string message = $"{connection.IPRemoteEndPoint.Address.MapToIPv4()}:{connection.IPRemoteEndPoint.Port} connected.";
-            Console.WriteLine(message);
+            ConsoleUtil.ShowLog(message, ConsoleColor.Green);
 
             connection.ConnectionClosed += OnConnectionClosed;
             connection.RegisterStaticPacketHandler<LobbyCreationRequest>(OnLobbyCreationRequest);
             connection.RegisterStaticPacketHandler<LobbyJoinRequest>(OnLobbyJoinRequest);
+            connection.RegisterStaticPacketHandler<LobbyLeaveRequest>(OnLobbyLeaveRequest);
             connection.RegisterStaticPacketHandler<MatchJoinRequest>(OnMatchJoinRequest);
+            connection.RegisterStaticPacketHandler<MatchLeaveWithPartyRequest>(OnMatchLeaveWithPartyRequest);
+            connection.RegisterStaticPacketHandler<MatchmakingRequest>(OnMatchmakingRequest);
         }
 
+        /// <summary>
+        /// Called when connection is closed on client's side
+        /// </summary>
+        /// <param name="reason"></param>
+        /// <param name="connection"></param>
         private void OnConnectionClosed(CloseReason reason, Connection connection)
         {
             //CheckLobby(connection);
@@ -62,6 +73,11 @@ namespace LobbySystemServer
             Console.WriteLine(message);
         }
 
+        /// <summary>
+        /// Called when a player sends request to create a lobby
+        /// </summary>
+        /// <param name="packet"></param>
+        /// <param name="connection"></param>
         private void OnLobbyCreationRequest(LobbyCreationRequest packet, Connection connection)
         {
             LobbyPlayer lobbyPlayer = new LobbyPlayer();
@@ -76,18 +92,18 @@ namespace LobbySystemServer
 
             Lobbies?.Add(newLobby);
 
-            var tempLobby = Utils.Clone(newLobby);
-            foreach (LobbyPlayer player in tempLobby.LobbyPlayers)
-                player.IP = null;
-
-            var jsonData = JsonConvert.SerializeObject(tempLobby);
+            var jsonData = JsonConvert.SerializeObject(NoIPLobby(newLobby));
             connection.Send(new LobbyCreationResponse(false, jsonData, packet));
 
-            Console.ForegroundColor = ConsoleColor.Yellow;
             string message = $"Lobby {newLobby.LobbyID} created by {lobbyPlayer.Name}.";
-            Console.WriteLine(ConsoleUtil.DrawInConsoleBox(message));
+            ConsoleUtil.ShowBoxLog(message, ConsoleColor.Yellow);
         }
 
+        /// <summary>
+        /// Called when player requests server to join a lobby
+        /// </summary>
+        /// <param name="packet"></param>
+        /// <param name="connection"></param>
         private void OnLobbyJoinRequest(LobbyJoinRequest packet, Connection connection)
         {
             LobbyPlayer lobbyPlayer = new LobbyPlayer();
@@ -99,18 +115,34 @@ namespace LobbySystemServer
             var lobby = Lobbies.Find(x => x.LobbyID == packet.LobbyID);
             lobby.LobbyPlayers.Add(lobbyPlayer);
 
-            var jsonData = JsonConvert.SerializeObject(lobby);
+            var jsonData = JsonConvert.SerializeObject(NoIPLobby(lobby));
             connection.Send(new LobbyJoinResponse(true, jsonData, packet));
             SendUpdateLobby(lobby);
 
-            Console.ForegroundColor = ConsoleColor.Yellow;
             string message = $"{lobbyPlayer.Name} joined Lobby {lobby.LobbyID}.";
-            Console.WriteLine(ConsoleUtil.DrawInConsoleBox(message));
+            ConsoleUtil.ShowBoxLog(message, ConsoleColor.Yellow);
         }
 
+        /// <summary>
+        /// Called when a player leaves the lobby
+        /// </summary>
+        /// <param name="packet"></param>
+        /// <param name="connection"></param>
+        private void OnLobbyLeaveRequest(LobbyLeaveRequest packet, Connection connection)
+        {
+            Console.WriteLine(Lobbies.Count);
+            var lobby = Lobbies.Find(x => x.LobbyID == packet.LobbyID);
+            CheckLobby(lobby, packet.UserID);
+            Console.WriteLine(Lobbies.Count);
+        }
+
+        /// <summary>
+        /// Sends lobby update to other players in the lobby when there's a change (other player left/joined).
+        /// </summary>
+        /// <param name="lobby"></param>
         private void SendUpdateLobby(Lobby lobby)
         {
-            var jsonData = JsonConvert.SerializeObject(lobby);
+            var jsonData = JsonConvert.SerializeObject(NoIPLobby(lobby));
             ServerContainer?.TCP_Connections.ForEach(c =>
             {
                 if (c.IsAlive)
@@ -123,6 +155,11 @@ namespace LobbySystemServer
             });
         }
 
+        /// <summary>
+        /// Called when party leader requests server to take other lobby players to match
+        /// </summary>
+        /// <param name="packet"></param>
+        /// <param name="connection"></param>
         private void OnMatchJoinRequest(MatchJoinRequest packet, Connection connection)
         {
             var lobby = Lobbies.Find(x => x.LobbyID == packet.LobbyID);
@@ -141,25 +178,98 @@ namespace LobbySystemServer
                 }
             });
 
-            Console.ForegroundColor = ConsoleColor.DarkYellow;
             string message = $"Players with Lobby ID {lobby.LobbyID} entered match {packet.RoomName}.";
-            Console.WriteLine(ConsoleUtil.DrawInConsoleBox(message));
+            ConsoleUtil.ShowBoxLog(message, ConsoleColor.DarkYellow);
         }
 
-        void CheckLobby(Connection connection)
+        /// <summary>
+        /// Called when lobby leader requests server to leave match with party
+        /// </summary>
+        /// <param name="packet"></param>
+        /// <param name="connection"></param>
+        private void OnMatchLeaveWithPartyRequest(MatchLeaveWithPartyRequest packet, Connection connection)
         {
-            var lobby = Lobbies.Find(x => x.LobbyPlayers[0].IP == connection.IPRemoteEndPoint.Address.MapToIPv4().ToString());
+            var lobby = Lobbies.Find(x => x.LobbyID == packet.LobbyID);
+            ServerContainer?.TCP_Connections.ForEach(c =>
+            {
+                if (c.IsAlive)
+                {
+                    string IP = c.IPRemoteEndPoint.Address.MapToIPv4().ToString();
+                    foreach (LobbyPlayer player in lobby.LobbyPlayers)
+                    {
+                        if (IP == player.IP && IP != connection.IPRemoteEndPoint.Address.MapToIPv4().ToString())
+                        {
+                            c.Send(new MatchLeaveWithPartyRequest(packet.RoomName, lobby.LobbyID));
+                        }
+                    }
+                }
+            });
 
-            if (lobby?.LobbyPlayers.Count <= 0)
+            string message = $"Players with Lobby ID {lobby.LobbyID} left match {packet.RoomName}.";
+            ConsoleUtil.ShowBoxLog(message, ConsoleColor.DarkYellow);
+        }
+
+        /// <summary>
+        /// Called when lobby leader starts matchmaking
+        /// </summary>
+        /// <param name="packet"></param>
+        /// <param name="connection"></param>
+        private void OnMatchmakingRequest(MatchmakingRequest packet, Connection connection)
+        {
+            var lobby = Lobbies.Find(x => x.LobbyID == packet.LobbyID);
+            Console.WriteLine("lobby id: " + lobby.LobbyID);
+            ServerContainer?.TCP_Connections.ForEach(c =>
+            {
+                if (c.IsAlive)
+                {
+                    string IP = c.IPRemoteEndPoint.Address.MapToIPv4().ToString();
+                    foreach (LobbyPlayer player in lobby.LobbyPlayers)
+                    {
+                        if (IP == player.IP && IP != connection.IPRemoteEndPoint.Address.MapToIPv4().ToString())
+                        {
+                            Console.WriteLine(player.IP + ":" + player.Name);
+                            c.Send(new MatchmakingRequest(lobby.LobbyID, packet.LeaderName));
+                        }
+                    }
+                }
+            });
+
+            string message = $"{packet.LeaderName} started matchmaking for Lobby {lobby.LobbyID}.";
+            ConsoleUtil.ShowBoxLog(message, ConsoleColor.DarkYellow);
+        }
+
+        /// <summary>
+        /// Checks whether to re-assign lobby leader or remove the lobby if a player leaves or disconnects.
+        /// </summary>
+        /// <param name="lobby"></param>
+        /// <param name="UserID"></param>
+        void CheckLobby(Lobby lobby, int UserID)
+        {
+            var lobbyPlayer = lobby.LobbyPlayers.Find(x => x.ID == UserID);
+            lobby.LobbyPlayers.Remove(lobbyPlayer);
+
+            if (!lobby.LobbyPlayers.Any())
+            {
                 Lobbies.Remove(lobby);
+            }
             else
             {
-                var myPlayer = lobby?.LobbyPlayers.Find(x => x.IP == connection.IPRemoteEndPoint.Address.MapToIPv4().ToString());
-
-                lobby.LobbyPlayers.Remove(myPlayer);
-                lobby.LobbyPlayers[0].IsLeader = true;
+                lobby.LobbyPlayers.First().IsLeader = true;
                 SendUpdateLobby(lobby);
             }
+        }
+
+        /// <summary>
+        /// Lobby contains IPs of lobby players on server. This method sets them to null for security purposes before sending it to clients/lobby players.
+        /// </summary>
+        /// <param name="OriginalLobby"></param>
+        /// <returns></returns>
+        Lobby NoIPLobby(Lobby OriginalLobby)
+        {
+            var noIPLobby = Utils.Clone(OriginalLobby);
+            foreach (LobbyPlayer player in noIPLobby.LobbyPlayers)
+                player.IP = null;
+            return noIPLobby;
         }
     }
 }

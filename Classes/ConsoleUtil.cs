@@ -69,5 +69,21 @@ namespace LobbySystemServer
             // the finished box
             return sb.ToString();
         }
+
+        public static void ShowLog(string message, ConsoleColor color)
+        {
+            Console.ForegroundColor = color;
+            Console.WriteLine(message);
+            using StreamWriter file = new("ServerOutput.txt", append: true);
+            file.Write(message + "\n");
+        }
+        
+        public static void ShowBoxLog(string message, ConsoleColor color)
+        {
+            Console.ForegroundColor = color;
+            Console.WriteLine(DrawInConsoleBox(message));
+            using StreamWriter file = new("ServerOutput.txt", append: true);
+            file.Write(message + "\n");
+        }
     }
 }
