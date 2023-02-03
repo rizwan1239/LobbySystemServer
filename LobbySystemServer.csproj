@@ -14,16 +14,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Network" Version="6.2.5.24" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.2" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Reference Include="ConsoleTables">
-      <HintPath>..\MFPS_GameModes\Assets\ConsoleTables.dll</HintPath>
-    </Reference>
-    <Reference Include="Network">
-      <HintPath>..\MFPS_GameModes\Assets\Debug\netstandard2.0\Network.dll</HintPath>
-    </Reference>
   </ItemGroup>
 
 </Project>

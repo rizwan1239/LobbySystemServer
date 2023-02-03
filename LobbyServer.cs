@@ -88,6 +88,7 @@ namespace LobbySystemServer
 
             Lobby newLobby = new Lobby();
             newLobby.LobbyID = RandomHex.Generate();
+            newLobby.LobbyRegion = packet.Region;
             newLobby.LobbyPlayers?.Add(lobbyPlayer);
 
             Lobbies?.Add(newLobby);
@@ -106,13 +107,20 @@ namespace LobbySystemServer
         /// <param name="connection"></param>
         private void OnLobbyJoinRequest(LobbyJoinRequest packet, Connection connection)
         {
+            var lobby = Lobbies.Find(x => x.LobbyID == packet.LobbyID);
+            if (lobby.LobbyRegion != packet.Region)
+            {
+                string errorMessage = "Region Conflict.";
+                connection.Send(new LobbyJoinResponse(false, errorMessage, packet));
+                return;
+            }
+
             LobbyPlayer lobbyPlayer = new LobbyPlayer();
             lobbyPlayer.ID = packet.UserID;
             lobbyPlayer.IsLeader = false;
             lobbyPlayer.Name = packet.Name;
             lobbyPlayer.IP = connection.IPRemoteEndPoint.Address.MapToIPv4().ToString();
 
-            var lobby = Lobbies.Find(x => x.LobbyID == packet.LobbyID);
             lobby.LobbyPlayers.Add(lobbyPlayer);
 
             var jsonData = JsonConvert.SerializeObject(NoIPLobby(lobby));
@@ -217,7 +225,6 @@ namespace LobbySystemServer
         private void OnMatchmakingRequest(MatchmakingRequest packet, Connection connection)
         {
             var lobby = Lobbies.Find(x => x.LobbyID == packet.LobbyID);
-            Console.WriteLine("lobby id: " + lobby.LobbyID);
             ServerContainer?.TCP_Connections.ForEach(c =>
             {
                 if (c.IsAlive)
@@ -227,7 +234,6 @@ namespace LobbySystemServer
                     {
                         if (IP == player.IP && IP != connection.IPRemoteEndPoint.Address.MapToIPv4().ToString())
                         {
-                            Console.WriteLine(player.IP + ":" + player.Name);
                             c.Send(new MatchmakingRequest(lobby.LobbyID, packet.LeaderName));
                         }
                     }

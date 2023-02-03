@@ -82,7 +82,7 @@ namespace LobbySystemServer
         {
             Console.ForegroundColor = color;
             Console.WriteLine(DrawInConsoleBox(message));
-            using StreamWriter file = new("ServerOutput.txt", append: true);
+            using StreamWriter file = new(AppContext.BaseDirectory + "ServerOutput.txt", append: true);
             file.Write(message + "\n");
         }
     }

@@ -10,6 +10,7 @@ namespace LobbySystem
     public class Lobby
     {
         public string? LobbyID { get; set; }
+        public string? LobbyRegion;
         public List<LobbyPlayer> LobbyPlayers = new List<LobbyPlayer>();
     }
 
